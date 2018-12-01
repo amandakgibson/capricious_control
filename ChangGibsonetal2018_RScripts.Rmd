@@ -1,0 +1,1292 @@
+---
+title: "ChangGibsonetal2018_RScripts"
+author: "Amanda Gibson"
+date: "November 30, 2018"
+output: pdf_document
+---
+
+For paper Rapid change in host specificity in a field population of the biological control organism Pasteuria penetrans; Chang, Gibson, Timper, Morran, Tubbs; 2018 Evolutionary Applications
+
+Packages used
+```{r}
+library(reshape2)
+library(plotrix)
+library(geepack)
+library(aod)
+library(rcompanion)
+options(digits=4)
+```
+
+Data + formatting
+
+```{r}
+datawide<-read.csv("Data_for_ChangGibson2018_EvolApp.csv")
+
+# reshape from wide to long format
+datalong<-reshape(datawide, direction = "long", v.names = "spores", 
+              varying = c("A","B","C","D","E","F","G","H","I","J","K","L","M","N",
+                          "O","P","Q","R","S","T","U","V","W","X","Y")) 
+# this stacks the columns "A"-"Y", which are the spore counts for each individual
+
+#create new binary variable for presence/absence
+infected<-ifelse(datalong$spores>0, 1,0) # is the individual infected at all? i.e. are spores >0? Yes, mark 1. No, mark 0
+longWgh=cbind(datalong,infected) # add this new column to the data set; GH line is included here
+long<-subset(longWgh,longWgh$sem!="GH") # exclude GH line - most of analyses will be done without this line, which has a distinct evolutionary origin
+longWgh$sem<-factor(longWgh$sem)
+long$sem<-factor(long$sem)
+
+# Grouped data, without GH
+attached=aggregate(infected~replicate*sem*year*treatment,data=long, sum)
+lengths=aggregate(infected~replicate*sem*year*treatment,data=long, length)
+
+ana<-cbind(attached,lengths$infected-attached$infected,lengths$infected)
+names(ana)=c("replicate","sem","year","treatment",
+             "attached","free","total" )
+
+# Grouped data, just GH
+longGH<-subset(longWgh,longWgh$sem=="GH")
+attachedGH=aggregate(infected~replicate*year*treatment,data=longGH, sum)
+lengthsGH=aggregate(infected~replicate*year*treatment,data=longGH, length)
+
+anaGH<-cbind(attachedGH,lengthsGH$infected-attachedGH$infected,lengthsGH$infected)
+names(anaGH)=c("replicate","year","treatment",
+             "attached","free","total" )
+```
+
+Results, Section 1: Endospore attachment.
+
+Quantitative summary of numbers of endospores attached to nematode test hosts
+```{r}
+# How many hosts had endospores attached?
+m<-aggregate(infected~plot*sem*year*treatment,data=long, mean)
+stdev<-aggregate(infected~plot*sem*year*treatment,data=long, sd)
+l<-aggregate(infected~plot*sem*year*treatment,data=long, length)
+se<-stdev$infected/sqrt(l$infected)
+
+print("mean fraction hosts with endospores attached")
+mean(m$infected) # mean - 36.4%
+print("standard error of mean")
+sd(m$infected)/sqrt(length(m$infected)) # standard error of mean - +/- 2.2%
+
+# Of those with hosts with endospores attached, what was the median number of endospores attached?
+att<-subset(long,long$infected==1) # subset on hosts with endospores attached?
+print("median number of endospores attached per host with endospores")
+median(att$spores)
+
+# What fraction of hosts with endospores attached had just one endospore attached?
+latt<-length(att$spores) # hosts with endospores attached
+
+att1<-table(att$spores==1) #574
+print("fraction hosts with endospores attached, where # attached =1")
+att1[2]/latt # 49.3%
+
+#What fraction of hosts with endospores attached had two endospores attached?
+att2<-table(att$spores==2) #223
+print("fraction hosts with endospores attached, where # attached =2")
+att2[2]/latt # 19.2%
+
+#What fraction of hosts with endospores attached had more than five attached?
+attm5<-table(att$spores>5) #140
+print("fraction hosts with endospores attached, where # attached >5")
+attm5[2]/latt # 12%
+
+#How many hosts had more than 15 endospores attached?
+attm15<-table(att$spores>15)
+print("fraction hosts with endospores attached, where # attached >15")
+attm15[2] # 17
+```
+
+Figure 1: Distribution of endospore counts per host
+
+```{r}
+#FIGURE 1
+h<-hist(att$spores,
+     breaks=seq(1,35,by=1),xlim=c(1,35),ylim=c(0,600),
+     include.lowest=TRUE,right=FALSE)
+
+par(las=1)
+par(mar=c(5,6,2,2))
+par(lwd=2)
+par(tcl=0.5)
+par(lwd=2)
+gap.barplot(h$counts,gap=c(230,550),
+            main="Figure 1: Distribution of endospore counts per hosts",xtics=h$breaks,
+            ytics=c(0,50,100,150,200,575),
+            col=rep("gray80",34),xlab="Number of attached endospores per host",ylab="Number of hosts per bin", xaxt="n",cex.lab=1.5,cex.axis=1.5,tck=0.02)
+axis(1,at=c(0.5,5.5,10.5,15.5,20.5,25.5,30.5,35.5),
+     tck=0.02,labels=c("0","5","10","15",
+                       "20","25","30","35"),
+     cex.axis=1.5)
+box()
+
+print("Figure 1: Distribution of endospore counts per host. Histogram is restricted to hosts that had one or more endospores of Pasteuria penetrans attached. Data shown for 1164 J2 nematode hosts.")
+```
+
+Results, Section 2: Variation in Endospore Abundance; 2nd and 3rd paragraph
+
+Comparison of attachment rates between soils derived from plots subjected to both crop treatment - with clonal host lines
+
+Table 1A
+
+```{r}
+# TABLE 1A
+# full model
+fit1<-geeglm(cbind(attached,free)~as.factor(year)+as.factor(sem)+treatment
+        + as.factor(year):as.factor(sem) 
+        + as.factor(year):treatment + as.factor(sem):treatment
+        + as.factor(sem):treatment:as.factor(year),
+        data=ana,family=binomial,
+       id=replicate, corstr="ar1")
+
+# test of year*line*treatment
+print("test of three-way interaction")
+wald.test(b = coef(fit1), Sigma = vcov(fit1), Terms = 24:32)
+
+# reduced model - remove year*line*treatment
+fit2<-geeglm(cbind(attached,free)~as.factor(year)+as.factor(sem)+treatment
+           + as.factor(year):as.factor(sem) 
+           + as.factor(year):treatment + as.factor(sem):treatment,
+           #+ as.factor(sem):treatment:as.factor(year),
+           data=ana,family=binomial,
+           id=replicate, corstr="ar1")
+
+# test of sem(line)*treatment
+print("test of line*treatment interaction")
+wald.test(b = coef(fit2), Sigma = vcov(fit2), Terms = 21:23) 
+
+# reduced model - remove line*treatment
+# final model
+fit3<-geeglm(cbind(attached,free)~as.factor(year)+as.factor(sem)+treatment
+           + as.factor(year):as.factor(sem) 
+           + as.factor(year):treatment, #+ as.factor(sem):treatment,
+           #+ as.factor(sem):treatment:as.factor(year),
+           data=ana,family=binomial,
+           id=replicate, corstr="ar1")
+
+summary(fit3)
+
+print("Table 1A")
+anova(fit3,test="LRT") # TABLE 1A
+```
+
+Results, Section 2: Variation in Endospore Abundance; 2nd and 3rd paragraph
+
+Comparison of attachment rates between soils derived from plots subjected to both crop treatment - with clonal host lines
+
+Testing line*year interaction - which line drives it?
+
+```{r}
+# does the interaction remain if we remove line C6?
+anaN6<-subset(ana,ana$sem!="6")
+anaN6$sem<-factor(anaN6$sem)
+
+manaN6<-geeglm(cbind(attached,free)~as.factor(year)+as.factor(sem)+treatment
+           + as.factor(year):as.factor(sem) 
+           + as.factor(year):treatment, #+ as.factor(sem):treatment,
+           #+ as.factor(sem):treatment:as.factor(year),
+           data=anaN6,family=binomial,
+           id=replicate, corstr="ar1")
+
+summary(manaN6)
+
+print("Table 1A without C6")
+anova(manaN6,test="LRT") 
+# Year*SEM - no
+
+# does the interaction remain if we remove line C3?
+anaN3<-subset(ana,ana$sem!="3")
+anaN3$sem<-factor(anaN3$sem)
+
+manaN3<-geeglm(cbind(attached,free)~as.factor(year)+as.factor(sem)+treatment
+           + as.factor(year):as.factor(sem) 
+           + as.factor(year):treatment, #+ as.factor(sem):treatment,
+           #+ as.factor(sem):treatment:as.factor(year),
+           data=anaN3,family=binomial,
+           id=replicate, corstr="ar1")
+
+summary(manaN3)
+
+print("Table 1A without C3")
+anova(manaN3,test="LRT") 
+# Year*SEM - yes
+
+# does the interaction remain if we remove line C40?
+anaN8<-subset(ana,ana$sem!="8")
+anaN8$sem<-factor(anaN3$sem)
+
+manaN8<-geeglm(cbind(attached,free)~as.factor(year)+as.factor(sem)+treatment
+           + as.factor(year):as.factor(sem) 
+           + as.factor(year):treatment, #+ as.factor(sem):treatment,
+           #+ as.factor(sem):treatment:as.factor(year),
+           data=anaN8,family=binomial,
+           id=replicate, corstr="ar1")
+
+summary(manaN8)
+print("Table 1A without C8")
+anova(manaN8,test="LRT") 
+# Year*SEM - yes
+
+# does the interaction remain if we remove line C40?
+anaN40<-subset(ana,ana$sem!="40")
+anaN40$sem<-factor(anaN3$sem)
+
+manaN40<-geeglm(cbind(attached,free)~as.factor(year)+as.factor(sem)+treatment
+           + as.factor(year):as.factor(sem) 
+           + as.factor(year):treatment, #+ as.factor(sem):treatment,
+           #+ as.factor(sem):treatment:as.factor(year),
+           data=anaN40,family=binomial,
+           id=replicate, corstr="ar1")
+
+summary(manaN40)
+
+print("Table 1A without C40")
+anova(manaN40,test="LRT") 
+# Year*SEM - yes
+
+```
+
+Results, Section 2: Variation in Endospore Abundance; 2nd and 3rd paragraph
+
+Comparison of attachment rates between soils derived from plots subjected to both crop treatment - with clonal host lines
+
+Numbers reported in the text
+
+```{r}
+# RATES OF ATTACHMENT - NUMBERS
+
+# What is the rate of endospore attachment in peanut vs. rotation plots?
+m<-aggregate(infected~plot*sem*year*treatment,data=long, mean)
+mT<-tapply(m$infected,list(m$treatment),mean)
+seT<-tapply(m$infected,list(m$treatment),sd)/sqrt(tapply(m$infected,list(m$treatment),length))
+
+print("mean attachment rate - peanut v. rotation plots")
+print(mT)
+print("standard error of means")
+print(seT)
+
+# What is the rate of endospore attachment for each line, by year? 
+# C6 - values for each year
+m6<-subset(m,m$sem==6)
+m6y<-tapply(m6$infected,list(m6$year),mean)
+se6y<-seT<-tapply(m6$infected,list(m6$year),sd)/sqrt(tapply(m6$infected,list(m6$year),length))
+
+print("yearly mean attachment rates to line C6")
+print(m6y)
+print("standard error of means")
+print(se6y)
+
+# C3 - mean across years
+m3<-subset(m,m$sem==3)
+m3y<-tapply(m3$infected,list(m3$year),mean)
+
+print("mean across years of attachment rate to C3")
+mean(m3y)
+print("standard error of mean")
+sd(m3y)/sqrt(4)
+
+# C8 - mean across years
+m8<-subset(m,m$sem==8)
+m8y<-tapply(m8$infected,list(m8$year),mean)
+print("mean across years of attachment rate to C8")
+mean(m8y)
+print("standard error of mean")
+sd(m8y)/sqrt(4)
+
+# C40 - mean across years
+m40<-subset(m,m$sem==40)
+m40y<-tapply(m40$infected,list(m40$year),mean)
+print("mean across years of attachment rate to C40")
+mean(m40y)
+print("standard error of mean")
+sd(m40y)/sqrt(4)
+
+```
+
+Results, Section 2: Variation in Endospore Abundance; 2nd and 3rd paragraph
+
+Comparison of attachment rates between soils derived from plots subjected to both crop treatment - just GH host line
+
+TAble 1B
+
+```{r}
+# TABLE 1B
+# full model
+# geefit
+fit4<-geeglm(cbind(attached,free)~as.factor(year)+treatment
+           + as.factor(year):treatment,
+           data=anaGH,family=binomial,
+           id=replicate, corstr="ar1")
+
+# test year*treatment
+print("test of year*treatment interaction")
+wald.test(b = coef(fit4), Sigma = vcov(fit4), Terms = 6:8) 
+
+
+# m2
+fit5<-geeglm(cbind(attached,free)~as.factor(year)+treatment,
+           data=anaGH,family=binomial,
+           id=replicate, corstr="ar1")
+
+summary(fit5)
+
+print("Table 1B")
+anova(fit5,test="LRT") # TABLE 1B
+
+
+```
+Results, Section 2: Variation in Endospore Abundance; 2nd and 3rd paragraph
+
+Comparison of attachment rates between soils derived from plots subjected to both crop treatment - just GH host line
+
+Numbers reported in the text
+
+```{r}
+# RATES OF ATTACHMENT - NUMBERS, GH
+
+# What is the rate of endospore attachment in peanut vs. rotation plots?
+mGH<-aggregate(infected~plot*sem*year*treatment,data=longGH, mean)
+mTGH<-tapply(mGH$infected,list(mGH$treatment),mean)
+seTGH<-tapply(mGH$infected,list(mGH$treatment),sd)/sqrt(tapply(mGH$infected,list(mGH$treatment),length))
+
+print("mean attachment rate - peanut v. rotation plots in GH lines")
+print(mTGH)
+print("standard error of means")
+print(seTGH)
+
+```
+Results, Section 2: Variation in Endospore Abundance; 2nd and 3rd paragraph
+
+Comparison of attachment rates between soils derived from plots subjected to both crop treatment - all clonal host lines
+
+Figure 2: Endospore attachment rates by treatment
+```{r}
+# Figure 2
+## attachment
+# means according to sem, year, treatment, and plot!
+meansF2<-aggregate(infected~plot*sem*year*treatment,data=long, mean)
+
+# boxplot
+par(tcl=0.5)
+par(mar=c(5,5,5,5))
+par(las=1)
+par(lwd=3)
+par(col="gray20")
+boxplot(meansF2$infected~meansF2$treatment*meansF2$year,
+        ylim=c(0,1),
+        ylab="Attachment Rate",xlab="Year",main="Figure 2: Attachment Rates by Treatment",
+        lwd=3,cex.lab=1.5,
+        col=c("#525252","#969696"),
+        at =c(1,2,4,5,7,8,10,11),xaxt="n",tcl=0.02,yaxt="n")
+axis(2,at=c(0,0.2,0.4,0.6,0.8,1),
+     labels=c("0.0","0.2","0.4","0.6","0.8","1.0"),
+     cex.axis=1.5)
+axis(1,at=c(1.5,4.5,7.5,10.5),
+     labels=c("","","",""),
+     cex.axis=1.5)
+mtext(c("2013","2014","2015","2016"),side=1,line=2,cex=1.5,at=c(1.5,4.5,7.5,10.5))
+legend(8.5,1.05,legend=c("Peanut","Rotation"),
+  fill=c("#525252","#969696"),border="black",
+  bty="n",cex=1.25,horiz=FALSE) # adds the legend
+
+print("Figure 2: Endospore attachment rates by treatment.  Endospore attachment rates were higher with soils collected from peanut plots vs. rotation plots.  Attachment rate was calculated as the fraction of 25 tested hosts with endospores attached.  Each boxplot represents 16 estimates of attachment rate (four clonal lines by four plots/treatment) in 25 hosts.")
+
+```
+Results, Section 2: Variation in Endospore Abundance; 2nd and 3rd paragraph
+
+Comparison of attachment rates between soils derived from plots subjected to both crop treatment - all clonal host lines
+
+Figure 3: Mean attachment rates through time
+
+```{r}
+# Figure 3
+## attachment
+# means according to sem, year, treatment, and plot
+meanF31=aggregate(infected~sem*year*plot,data=long,mean)
+meanF32=aggregate(infected~sem*year,data=meanF31,mean)
+stdev=aggregate(infected~sem*year,data=meanF31,sd)
+l=aggregate(infected~sem*year,data=meanF31,length)
+se=stdev$infected/sqrt(l$infected)
+
+# 95% confidence intervals with rcompanion
+# traditional
+groupwiseMean(infected~sem*year,data=meanF31,conf=0.95,digits=3)
+#bootstrapped
+CI=groupwiseMean(infected~sem*year,data=meanF31,conf=0.95,digits=3,
+              R=10000, boot=TRUE,traditional=FALSE,
+              normal=FALSE, basic=FALSE, percentile=FALSE,
+              bca=TRUE)
+
+# make data set
+meanF3=meanF32[order(meanF32$sem,meanF32$year),] # reorder mean2
+ms=cbind(meanF3,CI)
+
+# plot everyone
+p3=subset(ms,ms$sem==3)
+p6=subset(ms,ms$sem==6)
+p8=subset(ms,ms$sem==8)
+p40=subset(ms,ms$sem==40)
+
+par(tcl=0.5)
+par(mar=c(5,5,5,5))
+par(las=1)
+par(lwd=3)
+par(col="gray20")
+plot(x=c(0.85,1.85,2.85,3.85),y=p3$infected,
+     type="b",cex=2,col="gray10",lwd=3,
+     lty=1,bg="#a6cee3",pch=21,
+     xaxt="n",ylim=c(0,1),cex.axis=1.5,
+     ylab="Attachment Rate",xlab="Year",main="Figure 3: Mean attachment rates through time",
+     xlim=c(0.8,4.2),cex.lab=1.5)
+axis(1,at=c(1,2,3,4),labels=c("","","",""),
+     cex.axis=1.5)
+mtext(c("2013","2014","2015","2016"),1,line=2,at=c(1,2,3,4),
+      cex=1.5)
+
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       p3$Bca.lower,
+       c(0.85,1.85,2.85,3.85),
+       p3$Bca.upper,
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=p3$infected,
+       type="b",cex=2,col="gray10",lwd=3,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       p6$Bca.lower,
+       c(0.95,1.95,2.95,3.95),
+       p6$Bca.upper,
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95),y=p6$infected,
+       type="b",cex=2,col="gray10",lwd=3,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       p8$Bca.lower,
+       c(1.05,2.05,3.05,4.05),
+       p8$Bca.upper,
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),y=p8$infected,
+       type="b",cex=2,col="gray10",lwd=3,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       p40$Bca.lower,
+       c(1.15,2.15,3.15,4.15),
+       p40$Bca.upper,
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=p40$infected,
+       type="b",cex=2,col="gray10",lwd=3,
+       lty=4,bg="#33a02c",pch=24)
+
+legend(3.1,1.05,legend=c("3","6","8","40"),
+       pch=c(21,22,23,24),lty=c(1,2,3,4),
+       pt.bg=c("#a6cee3","#1f78b4","#b2df8a","#33a02c"),
+       col="gray10",lwd=2,cex=1,bty="n")
+
+print("Figure 3:  Mean attachment rates through time.  For each line, the graph shows the mean attachment rate across the eight plots surveyed each year.  Attachment rates were estimated using 25 hosts for each line-by-plot-by-treatment combination.  Error bars are 95% confidence intervals for the mean calculated using the function groupwiseMean in the R package rcompanion (Mangiafico, 2015).")
+```
+Results, Section 3: Change in host specificity; 2nd and 3rd paragraph
+
+Comparison of attachment rates though time, in peanut plots
+
+Table 2A
+
+```{r}
+# Table 2A
+longP<-subset(long,long$treatment=="peanut")
+longP$treatmnet<-factor(longP$treatment)
+
+# full model
+fit6<-glm(infected~ as.factor(year)+as.factor(sem)+plot
+             + as.factor(year):as.factor(sem)
+            + as.factor(year):plot + as.factor(sem):plot
+           + as.factor(sem):plot:as.factor(year),
+           data=longP,family=binomial)
+
+summary(fit6)
+print("Table2A")
+anova(fit6,test="Chisq")
+
+# evaluate pseudo-R2
+#intercept only model
+print("pseudo-R2")
+fitpR2 <- glm( infected ~ 
+             +  1, data=longP,family = binomial)
+1-logLik(fit6)/logLik(fitpR2)
+```
+
+Results, Section 3: Change in host specificity; 2nd and 3rd paragraph
+
+Comparison of attachment rates though time, in peanut plots
+
+Table 2A: deviance estimates
+```{r}
+dev1<-glm(infected~ as.factor(year)+as.factor(sem)+plot
+        + as.factor(year):as.factor(sem)
+        + as.factor(year):plot + as.factor(sem):plot
+        + as.factor(sem):plot:as.factor(year),
+        data=longP,family=binomial)
+d1<-anova(dev1,test="Chisq")
+
+# glm
+dev2<-glm(infected~ as.factor(year)+as.factor(sem)+plot
+        + as.factor(year):plot + as.factor(sem):plot
+        + as.factor(year):as.factor(sem)
+        + as.factor(sem):plot:as.factor(year),
+        data=longP,family=binomial)
+d2<-anova(dev2,test="Chisq")
+
+dev3<-glm(infected~ as.factor(year)+as.factor(sem)+plot
+        + as.factor(year):plot +  + as.factor(year):as.factor(sem)+ as.factor(sem):plot
+        + as.factor(sem):plot:as.factor(year),
+        data=longP,family=binomial)
+d3<-anova(dev3,test="Chisq")
+
+dm<-mean(c(d1[5,2],d2[7,2],d3[6,2])) # mean deviance for year*line interaction
+d3int<-d1[8,2]
+
+print("ratio of three-way interaction deviance and mean year*line deviance - peanut")
+d3int/dm
+
+```
+Results, Section 3: Change in host specificity; 2nd and 4th paragraph
+
+Comparison of attachment rates though time, in rotation plots
+
+Table 2B
+```{r}
+# Table 2B
+longR<-subset(long,long$treatment=="rotation")
+longR$treatmnet<-factor(longR$treatment)
+
+# full model
+fit7<-glm(infected~ as.factor(year)+as.factor(sem)+plot
+             + as.factor(year):as.factor(sem)
+            + as.factor(year):plot + as.factor(sem):plot
+           + as.factor(sem):plot:as.factor(year),
+           data=longR,family=binomial)
+
+summary(fit7)
+print("Table2B")
+anova(fit7,test="Chisq")
+
+# evaluate pseudo-R2
+#intercept only model
+print("pseudo-R2")
+fitpR2 <- glm( infected ~ 
+             +  1, data=longR,family = binomial)
+1-logLik(fit7)/logLik(fitpR2)
+```
+Results, Section 3: Change in host specificity; 2nd and 4th paragraph
+
+Comparison of attachment rates though time, in rotation plots
+
+Table 2B: Deviance estimates
+```{r}
+dev1<-glm(infected~ as.factor(year)+as.factor(sem)+plot
+        + as.factor(year):as.factor(sem)
+        + as.factor(year):plot + as.factor(sem):plot
+        + as.factor(sem):plot:as.factor(year),
+        data=longR,family=binomial)
+d1<-anova(dev1,test="Chisq")
+
+# glm
+dev2<-glm(infected~ as.factor(year)+as.factor(sem)+plot
+        + as.factor(year):plot + as.factor(sem):plot
+        + as.factor(year):as.factor(sem)
+        + as.factor(sem):plot:as.factor(year),
+        data=longR,family=binomial)
+d2<-anova(dev2,test="Chisq")
+
+dev3<-glm(infected~ as.factor(year)+as.factor(sem)+plot
+        + as.factor(year):plot +  + as.factor(year):as.factor(sem)+ as.factor(sem):plot
+        + as.factor(sem):plot:as.factor(year),
+        data=longR,family=binomial)
+d3<-anova(dev3,test="Chisq")
+
+dm<-mean(c(d1[5,2],d2[7,2],d3[6,2])) # mean deviance for year*line interaction
+d3int<-d1[8,2]
+
+print("ratio of mean year*line deviance and three-way interaction deviance - rotation")
+dm/d3int
+```
+Results, Section 3: Change in host specificity; 5th paragraph
+
+Comparison of attachment rates though time, individual plots
+
+Table S1
+```{r}
+# Table S1
+
+# peanut plots
+#Table S1A
+pa<-subset(long,long$treatment=="peanut" & long$plot=="A")
+
+m1<-glm(infected~ as.factor(year)+as.factor(sem)
+        + as.factor(year):as.factor(sem),
+        data=pa,family=binomial)
+summary(m1)
+print("Table S1A")
+anova(m1,test="Chisq")
+
+m <- glm( infected ~ 
+            +  1, data=pa,family = binomial)
+1-logLik(m1)/logLik(m)
+
+#Table S1B
+pb<-subset(long,long$treatment=="peanut" & long$plot=="B")
+m1<-glm(infected~ as.factor(year)+as.factor(sem)
+        + as.factor(year):as.factor(sem),
+        data=pb,family=binomial)
+summary(m1)
+print("Table S1B")
+anova(m1,test="Chisq")
+
+m <- glm( infected ~ 
+            +  1, data=pb,family = binomial)
+1-logLik(m1)/logLik(m)
+
+#Table S1C
+pc<-subset(long,long$treatment=="peanut" & long$plot=="C")
+m1<-glm(infected~ as.factor(year)+as.factor(sem)
+        + as.factor(year):as.factor(sem),
+        data=pc,family=binomial)
+summary(m1)
+print("Table S1C")
+anova(m1,test="Chisq")
+
+m <- glm( infected ~ 
+            +  1, data=pc,family = binomial)
+1-logLik(m1)/logLik(m)
+
+
+#Table S1D
+pd<-subset(long,long$treatment=="peanut" & long$plot=="D")
+
+m1<-glm(infected~ as.factor(year)+as.factor(sem)
+        + as.factor(year):as.factor(sem),
+        data=pd,family=binomial)
+summary(m1)
+print("Table S1D")
+anova(m1,test="Chisq")
+
+m <- glm( infected ~ 
+            +  1, data=pd,family = binomial)
+1-logLik(m1)/logLik(m)
+
+# rotation plots
+#Table S1E - rotation A
+ra<-subset(long,long$treatment=="rotation" & long$plot=="A")
+
+m1<-glm(infected~ as.factor(year)+as.factor(sem)
+        + as.factor(year):as.factor(sem),
+        data=ra,family=binomial)
+summary(m1)
+print("Table S1E")
+anova(m1,test="Chisq")
+
+m <- glm( infected ~ 
+            +  1, data=ra,family = binomial)
+1-logLik(m1)/logLik(m)
+
+#Table S1F - rotation B
+rb<-subset(long,long$treatment=="rotation" & long$plot=="B")
+
+m1<-glm(infected~ as.factor(year)+as.factor(sem)
+        + as.factor(year):as.factor(sem),
+        data=rb,family=binomial)
+summary(m1)
+print("Table S1F")
+anova(m1,test="Chisq")
+
+m <- glm( infected ~ 
+            +  1, data=rb,family = binomial)
+1-logLik(m1)/logLik(m)
+
+# Table S1G - rotation C
+rc<-subset(long,long$treatment=="rotation" & long$plot=="C")
+
+m1<-glm(infected~ as.factor(year)+as.factor(sem)
+        + as.factor(year):as.factor(sem),
+        data=rc,family=binomial)
+summary(m1)
+print("Table S1G")
+anova(m1,test="Chisq")
+
+m <- glm( infected ~ 
+            +  1, data=pa,family = binomial)
+1-logLik(m1)/logLik(m)
+
+#Table S1H - rotation D
+rd<-subset(long,long$treatment=="rotation" & long$plot=="D")
+
+m1<-glm(infected~ as.factor(year)+as.factor(sem)
+        + as.factor(year):as.factor(sem),
+        data=rd,family=binomial)
+summary(m1)
+print("Table S1H")
+anova(m1,test="Chisq")
+
+m <- glm( infected ~ 
+            +  1, data=rd,family = binomial)
+1-logLik(m1)/logLik(m)
+```
+Results, Section 3: Change in host specificity
+
+Comparison of attachment rates though time, individual plots
+
+Figure 4: Temporal change in P. penetrans specificity at the local level
+```{r}
+# Figure 4
+att=aggregate(infected~replicate*sem*year*treatment,data=long, sum)
+l=aggregate(infected~replicate*sem*year*treatment,data=long, length)
+freq<-att$infected/l$infected
+
+#binomial se
+sep=sqrt((freq*(1-freq))/l$infected)
+
+#binomial CI
+bCI=matrix(ncol=2,nrow=128)
+colnames(bCI)=c("lower","upper")
+for (i in 1:128){
+  x<-binom.test(att$infected[i],l$infected[i],alternative="two.sided",conf.level=0.95)
+  bCI[i,]=x$conf.int
+}
+
+ana<-cbind(att,l$infected-att$infected,l$infected,freq,bCI)
+names(ana)=c("replicate","sem","year","treatment",
+             "attached","free","total" ,"freq","lower","upper")
+
+# Peanut plots
+# Figure 4A-D
+p<-subset(ana,ana$treatment=="peanut")
+
+par(tcl=0.5)
+par(las=1)
+layout(matrix(c(1,2,3,4), 2, 2, byrow = TRUE), 
+       widths=c(1,1), heights=c(1,1))
+par(las=1)
+par(lwd=1)
+par(col="gray20")
+
+#Fig4A
+rep<-subset(p,p$replicate==1)
+par(mar=c(2,4,4,2))
+plot(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+     type="b",cex=2,col="gray10",lwd=1,
+     lty=1,bg="#a6cee3",pch=21,
+     cex.axis=1,cex.lab=1,xaxt="n",ylim=c(0,1),ylab="",xlab="",xlim=c(0.8,4.2))
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       rep$lower[rep$sem==3],
+       c(0.85,1.85,2.85,3.85),
+       rep$upper[rep$sem==3],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       rep$lower[rep$sem==6],
+       c(0.95,1.95,2.95,3.95),
+       rep$upper[rep$sem==6],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95), rep$freq[rep$sem==6],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       rep$lower[rep$sem==8],
+       c(1.05,2.05,3.05,4.05),
+       rep$upper[rep$sem==8],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),rep$freq[rep$sem==8],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       rep$lower[rep$sem==40],
+       c(1.15,2.15,3.15,4.15),
+       rep$upper[rep$sem==40],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=rep$freq[rep$sem==40],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=4,bg="#33a02c",pch=24)
+
+# Fig4B
+rep<-subset(p,p$replicate==2)
+par(mar=c(2,2,4,4))
+plot(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+     type="b",cex=2,col="gray10",lwd=1,
+     lty=1,bg="#a6cee3",pch=21,
+     cex.axis=1,xaxt="n",yaxt="n",ylim=c(0,1),ylab="",xlab="",xlim=c(0.8,4.2))
+
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       rep$lower[rep$sem==3],
+       c(0.85,1.85,2.85,3.85),
+       rep$upper[rep$sem==3],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       rep$lower[rep$sem==6],
+       c(0.95,1.95,2.95,3.95),
+       rep$upper[rep$sem==6],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95), rep$freq[rep$sem==6],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       rep$lower[rep$sem==8],
+       c(1.05,2.05,3.05,4.05),
+       rep$upper[rep$sem==8],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),rep$freq[rep$sem==8],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       rep$lower[rep$sem==40],
+       c(1.15,2.15,3.15,4.15),
+       rep$upper[rep$sem==40],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=rep$freq[rep$sem==40],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=4,bg="#33a02c",pch=24)
+
+#Fig4C
+rep<-subset(p,p$replicate==3)
+par(mar=c(4,4,2,2))
+plot(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+     type="b",cex=2,col="gray10",lwd=1,
+     lty=1,bg="#a6cee3",pch=21,
+     cex.axis=1,cex.lab=1,xaxt="n",ylim=c(0,1),ylab="",xlab="",xlim=c(0.8,4.2))
+axis(1,at=c(1,2,3,4),labels=c("","","",""),
+     cex.axis=1)
+mtext(c("2013","2014","2015","2016"),side=1,at=c(1,2,3,4),line=2,
+      cex=1)
+
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       rep$lower[rep$sem==3],
+       c(0.85,1.85,2.85,3.85),
+       rep$upper[rep$sem==3],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       rep$lower[rep$sem==6],
+       c(0.95,1.95,2.95,3.95),
+       rep$upper[rep$sem==6],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95), rep$freq[rep$sem==6],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       rep$lower[rep$sem==8],
+       c(1.05,2.05,3.05,4.05),
+       rep$upper[rep$sem==8],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),rep$freq[rep$sem==8],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       rep$lower[rep$sem==40],
+       c(1.15,2.15,3.15,4.15),
+       rep$upper[rep$sem==40],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=rep$freq[rep$sem==40],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=4,bg="#33a02c",pch=24)
+
+
+# Fig4D
+rep<-subset(p,p$replicate==4)
+par(mar=c(4,2,2,4))
+plot(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+     type="b",cex=2,col="gray10",lwd=3,
+     lty=1,bg="#a6cee3",pch=21,
+     cex.axis=1,xaxt="n",yaxt="n",ylim=c(0,1),ylab="",xlab="",xlim=c(0.8,4.2))
+axis(1,at=c(1,2,3,4),labels=c("","","",""),
+     cex.axis=1)
+mtext(c("2013","2014","2015","2016"),side=1,at=c(1,2,3,4),line=2,
+      cex=1)
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       rep$lower[rep$sem==3],
+       c(0.85,1.85,2.85,3.85),
+       rep$upper[rep$sem==3],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       rep$lower[rep$sem==6],
+       c(0.95,1.95,2.95,3.95),
+       rep$upper[rep$sem==6],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95), rep$freq[rep$sem==6],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       rep$lower[rep$sem==8],
+       c(1.05,2.05,3.05,4.05),
+       rep$upper[rep$sem==8],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),rep$freq[rep$sem==8],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       rep$lower[rep$sem==40],
+       c(1.15,2.15,3.15,4.15),
+       rep$upper[rep$sem==40],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=rep$freq[rep$sem==40],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=4,bg="#33a02c",pch=24)
+
+# Rotation plots
+r<-subset(ana,ana$treatment=="rotation")
+
+par(tcl=0.5)
+par(mfrow=c(2,2))
+par(las=1)
+par(lwd=1)
+par(col="gray20")
+
+# Fig 4E
+rep<-subset(r,r$replicate==5)
+par(mar=c(2,4,4,2))
+plot(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+     type="b",cex=2,col="gray10",lwd=1,
+     lty=1,bg="#a6cee3",pch=21,
+     cex.axis=1,cex.lab=1,xaxt="n",ylim=c(0,1),ylab="",xlab="",xlim=c(0.8,4.2))
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       rep$lower[rep$sem==3],
+       c(0.85,1.85,2.85,3.85),
+       rep$upper[rep$sem==3],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       rep$lower[rep$sem==6],
+       c(0.95,1.95,2.95,3.95),
+       rep$upper[rep$sem==6],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95), rep$freq[rep$sem==6],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       rep$lower[rep$sem==8],
+       c(1.05,2.05,3.05,4.05),
+       rep$upper[rep$sem==8],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),rep$freq[rep$sem==8],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       rep$lower[rep$sem==40],
+       c(1.15,2.15,3.15,4.15),
+       rep$upper[rep$sem==40],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=rep$freq[rep$sem==40],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=4,bg="#33a02c",pch=24)
+
+# Fig 4F
+rep<-subset(r,r$replicate==6)
+par(mar=c(2,2,4,4))
+plot(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+     type="b",cex=2,col="gray10",lwd=1,
+     lty=1,bg="#a6cee3",pch=21,cex.lab=1,
+     cex.axis=1,xaxt="n",yaxt="n",ylim=c(0,1),ylab="",xlab="",xlim=c(0.8,4.2))
+
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       rep$lower[rep$sem==3],
+       c(0.85,1.85,2.85,3.85),
+       rep$upper[rep$sem==3],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       rep$lower[rep$sem==6],
+       c(0.95,1.95,2.95,3.95),
+       rep$upper[rep$sem==6],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95), rep$freq[rep$sem==6],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       rep$lower[rep$sem==8],
+       c(1.05,2.05,3.05,4.05),
+       rep$upper[rep$sem==8],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),rep$freq[rep$sem==8],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       rep$lower[rep$sem==40],
+       c(1.15,2.15,3.15,4.15),
+       rep$upper[rep$sem==40],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=rep$freq[rep$sem==40],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=4,bg="#33a02c",pch=24)
+
+# Fig 4G
+rep<-subset(r,r$replicate==7)
+par(mar=c(4,4,2,2))
+plot(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+     type="b",cex=2,col="gray10",lwd=1,
+     lty=1,bg="#a6cee3",pch=21,
+     cex.axis=1,cex.lab=1,xaxt="n",ylim=c(0,1),ylab="",xlab="",xlim=c(0.8,4.2))
+axis(1,at=c(1,2,3,4),labels=c("","","",""),
+     cex.axis=1)
+mtext(c("2013","2014","2015","2016"),side=1,at=c(1,2,3,4),line=2,
+      cex=1)
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       rep$lower[rep$sem==3],
+       c(0.85,1.85,2.85,3.85),
+       rep$upper[rep$sem==3],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       rep$lower[rep$sem==6],
+       c(0.95,1.95,2.95,3.95),
+       rep$upper[rep$sem==6],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95), rep$freq[rep$sem==6],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       rep$lower[rep$sem==8],
+       c(1.05,2.05,3.05,4.05),
+       rep$upper[rep$sem==8],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),rep$freq[rep$sem==8],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       rep$lower[rep$sem==40],
+       c(1.15,2.15,3.15,4.15),
+       rep$upper[rep$sem==40],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=rep$freq[rep$sem==40],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=4,bg="#33a02c",pch=24)
+
+
+# Fig 4H
+rep<-subset(r,r$replicate==8)
+par(mar=c(4,2,2,4))
+plot(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+     type="b",cex=2,col="gray10",lwd=1,
+     lty=1,bg="#a6cee3",pch=21,
+     cex.axis=1,cex.lab=1,xaxt="n",yaxt="n",ylim=c(0,1),ylab="",xlab="",xlim=c(0.8,4.2))
+axis(1,at=c(1,2,3,4),labels=c("","","",""),
+     cex.axis=1)
+mtext(c("2013","2014","2015","2016"),side=1,at=c(1,2,3,4),line=2,
+      cex=1)
+#sem 3
+arrows(c(0.85,1.85,2.85,3.85),
+       rep$lower[rep$sem==3],
+       c(0.85,1.85,2.85,3.85),
+       rep$upper[rep$sem==3],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.85,1.85,2.85,3.85),y=rep$freq[rep$sem==3],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=1,bg="#a6cee3",pch=21)
+
+#sem 6
+arrows(c(0.95,1.95,2.95,3.95),
+       rep$lower[rep$sem==6],
+       c(0.95,1.95,2.95,3.95),
+       rep$upper[rep$sem==6],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(0.95,1.95,2.95,3.95), rep$freq[rep$sem==6],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=2,bg="#1f78b4",pch=22)
+
+#sem 8
+arrows(c(1.05,2.05,3.05,4.05),
+       rep$lower[rep$sem==8],
+       c(1.05,2.05,3.05,4.05),
+       rep$upper[rep$sem==8],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.05,2.05,3.05,4.05),rep$freq[rep$sem==8],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=3,bg="#b2df8a",pch=23)
+
+#sem40
+arrows(c(1.15,2.15,3.15,4.15),
+       rep$lower[rep$sem==40],
+       c(1.15,2.15,3.15,4.15),
+       rep$upper[rep$sem==40],
+       code=3,      #arrow type
+       angle=90,
+       length=0.1,
+       lwd=2)
+points(x=c(1.15,2.15,3.15,4.15),y=rep$freq[rep$sem==40],
+       type="b",cex=2,col="gray10",lwd=1,
+       lty=4,bg="#33a02c",pch=24)
+
+print("Figure 4: Temporal change in P. penetrans specificity at the local level.  The fraction of hosts with attached endospores is shown for each of the four peanut (A-D) and rotation (E-H) plots.  The relative attachment rates to host lines, and even their rank order, varied between years in the same plot and between plots in the same year, consistent with spatial and temporal variation in host specificity.  Each data point is estimated from 25 hosts. Error bars are 95% confidence intervals for the proportion calculated using the function binom.test in R.")
+```
+
